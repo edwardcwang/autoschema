@@ -43,6 +43,11 @@ class FormatAs(tpe: String, format: String) extends StaticAnnotation {
   def this(tpe: String) = this(tpe, "")
 }
 
+/** Set the "additionalProperties" field for an object - i.e. whether extra properties are allowed or not. */
+class AdditionalProperties(allowed: String) extends StaticAnnotation {
+  def this(allowed: Boolean) = this(allowed.toString)
+}
+
 /**
  * Lets you set the schema for one type to be the schema of another type
  * @example
@@ -106,6 +111,12 @@ object Term {
    */
   @field
   class Hide extends StaticAnnotation
+
+  /**
+   * Replace underscores in the emitted JSON schema with spaces (E.g. "foo_bar": str) --> "foo bar"
+   */
+  @field
+  class ReplaceUnderscores extends StaticAnnotation
 
   /**
    * Same as [[annotations.Description]] but for fields

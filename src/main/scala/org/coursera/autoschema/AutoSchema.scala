@@ -17,6 +17,7 @@
 package org.coursera.autoschema
 
 import play.api.libs.json.JsArray
+import play.api.libs.json.JsBoolean
 import play.api.libs.json.Json
 import play.api.libs.json.JsObject
 import play.api.libs.json.JsString
@@ -54,8 +55,14 @@ object AutoSchema {
 
   private[this] val classSchemaCache = collection.concurrent.TrieMap[String, JsObject]()
 
+  private[this] val isReplaceUnderscoresAnnotation = (annotation: ru.Annotation) =>
+    annotation.tpe.typeSymbol.fullName == "org.coursera.autoschema.annotations.Term.ReplaceUnderscores"
+
   private[this] val isHideAnnotation = (annotation: ru.Annotation) =>
     annotation.tpe.typeSymbol.fullName == "org.coursera.autoschema.annotations.Term.Hide"
+
+  private[this] val isAdditionalPropertiesAnnotation = (annotation: ru.Annotation) =>
+    annotation.tpe.typeSymbol.fullName == "org.coursera.autoschema.annotations.AdditionalProperties"
 
   private[this] val isFormatAnnotation = (annotation: ru.Annotation) =>
     annotation.tpe.typeSymbol.fullName == "org.coursera.autoschema.annotations.FormatAs"
@@ -89,6 +96,13 @@ object AutoSchema {
     }
   }
 
+  private [this] def additionalPropertiesAnnotationJson(annotation: ru.Annotation) = {
+    import scala.reflect.runtime.universe._
+    annotation.scalaArgs match {
+      case Literal(Constant(allowed: Boolean)) :: Nil => Some("additionalProperties" -> JsBoolean(allowed))
+    }
+  }
+
   private[this] def createClassJson(tpe: ru.Type, previousTypes: Set[String]) = {
     // Check if schema for this class has already been generated
     classSchemaCache.getOrElseUpdate(tpe.typeSymbol.fullName, {
@@ -106,13 +120,19 @@ object AutoSchema {
                 .getOrElse(createSchema(term.typeSignature, previousTypes + tpe.typeSymbol.fullName))
             }
 
+            val defaultTermName = term.name.decodedName.toString.trim
+            val termName = term.annotations.find(isReplaceUnderscoresAnnotation) match {
+              case Some(x) => defaultTermName.replace("_", " ")
+              case None => defaultTermName
+            }
+
             val description = term.annotations.find(isDescriptionAnnotation).flatMap(descriptionAnnotationJson)
-            val termFormatWithDescription = description match  {
+            val termFormatWithDescription = description match {
               case Some(value) => termFormat + value
               case None => termFormat
             }
 
-            Some(term.name.decoded.trim -> termFormatWithDescription)
+            Some(termName -> termFormatWithDescription)
           } else {
             None
           }
@@ -121,10 +141,16 @@ object AutoSchema {
         }
       }.toList.sortBy(_._1)
 
+      // Handle the additionalProperties annotation.
+      val additionalproperties: List[(String, play.api.libs.json.JsValue)] = tpe.typeSymbol.annotations.find(isAdditionalPropertiesAnnotation).flatMap(additionalPropertiesAnnotationJson) match {
+        case Some(x) => List(x)
+        case None => List()
+      }
+
       val properties = JsObject(propertiesList)
 
       // Return the value and add it to the cache (since we're using getOrElseUpdate
-      Json.obj("title" -> title, "type" -> "object", "properties" -> properties)
+      JsObject(List("title" -> JsString(title), "type" -> JsString("object"), "properties" -> properties) ++ additionalproperties)
     })
   }
 
